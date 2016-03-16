@@ -81,7 +81,7 @@ module Constants = (struct
   let modulo = lift2 Z.erem
 
   let div a b =
-    if b = Cst Z.zero then BOT
+    if b = Cst Z.zero || b = TOP then BOT
     else lift2 Z.div a b
 
 

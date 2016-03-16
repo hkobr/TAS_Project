@@ -17,16 +17,65 @@ module Intervals = (struct
   
   (* types *)
   (* ***** *)
+  type bound =
+    | Int of Z.t
+    | INF
+    | MINF
+
+  let bound_to_string (a:bound) : string = match a with
+    | Int a -> Z.to_string a
+    | INF -> "INF"
+    | MINF -> "MINF"
+
+    (* -a *)
+  let bound_neg (a:bound) : bound = match a with
+    | MINF -> INF
+    | INF -> MINF
+    | Int i -> Int (Z.neg i)
+
+  (* a+b *)
+  let bound_add (a:bound) (b:bound) : bound = match a,b with
+    | MINF, INF | INF, MINF -> invalid_arg "bound_add"
+    | MINF,_ | _,MINF -> MINF
+    | INF,_ | _,INF -> INF
+    | Int i, Int j -> Int (Z.add i j)  
+
+  let bound_mul (a:bound) (b:bound) : bound = match a,b with
+    | MINF, INF | INF, MINF -> MINF
+    | Int Z.zero,_ | _,Int Z.zero -> Int Z.zero
+    | MINF, MINF -> INF
+    | MINF, Int x | Int x, MINF -> let x2 = Z.sign x in
+      if x2=(-1) then INF
+      else if x2=1 then MINF
+      else Int Z.zero
+    | INF, Int x | Int x, INF -> let x2 = Z.sign x in
+      if x2=(-1) then MINF
+      else if x2=1 then INF
+      else Int Z.zero
+
+  (* compare a et b, retourne -1, 0 ou 1 *)
+  let bound_cmp (a:bound) (b:bound) : int = match a,b with
+    | MINF, MINF | INF,INF -> 0
+    | MINF,_ | _,INF -> -1
+    | INF,_ | _,MINF -> 1
+    | Int i, Int j -> Z.compare i j
+
+  let bound_min (a:bound) (b:bound) : bound = 
+    let x = bound_cmp a b in
+      if x=(-1) || x=0 then a
+      else b
+
+  let bound_max (a:bound) (b:bound) : bound =
+    let x = bound_cmp a b in
+      if(x=(-1) || x=0) then b
+      else a
+
 
 
   (* type of abstract values *)
   type t =
-    | Cst of Z.t, Cst of Z.t  (* the set is an interval of constants *)
-	| INF, Cst of Z.t
-	| Cst of Z.t, SUP
-    | BOT         (* the set is empty (not reachable) *)
-    | TOP         (* the set of all integers *)
-
+    | Itv of bound * bound 
+    | BOT
 
   (* utilities *)
   (* ********* *)
@@ -35,68 +84,57 @@ module Intervals = (struct
   (* lift unary arithmetic operations, from integers to t *)
   let lift1 f x =
     match x with
+    | Itv (a,b) -> f a b
     | BOT -> BOT
-    | TOP -> TOP
-    | Cst a -> Cst (f a)
 
   (* lift binary arithmetic operations *)
-  let lift2 f x y =
+  let lift2 f (x:t) (y:t) :t =
     match x,y with
     | BOT,_ | _,BOT -> BOT
-    | TOP,_ | _,TOP -> TOP
-    | Cst a, Cst b -> Cst (f a b), Cst (f a b)
+    | Itv (a, b), Itv(c, d) -> Itv(f a c, f b d)
           
 
 
   (* interface implementation *)
   (* ************************ *)
 
-
-  (* unrestricted value *)
-  let top = TOP
-
   (* bottom value *)
   let bottom = BOT
 
-  (* constant *)
-  let const c = Cst c
-
   (* interval *)
   let rand x y =
-    if x=y then Cst x, Cst y
-    else if x<y then Cst x, Cst y
+    if x=y || x<y then Itv (Int x, Int y)
     else BOT
 
 
   (* arithmetic operations *)
 
-  let neg = lift1 Z.neg
+  let neg (x:t) : t = lift1 (fun a b -> Itv (bound_neg b, bound_neg a)) x
 
-  let add = lift2 Z.add
+  let add a b = lift2 (fun  i j k l -> Itv(bound_add i k, bound_add j l) a b
 
-  let sub = lift2 Z.sub
+  let sub a b = a, b
 
-  let mul a b = 
-    if a = Cst Z.zero || b = Cst Z.zero then Cst Z.zero, Cst Z.zero
-    else lift2 Z.mul a b
+  let mul a b = a, b
 
-  let modulo = lift2 Z.erem
+  let modulo a b = a, b
 
-  let div a b =
-    if b = Cst Z.zero then BOT, BOT
-    else lift2 Z.div a b
+  let div a b = a, b
 
 
   (* set-theoretic operations *)
   
   let join a b = match a,b with
   | BOT,x | x,BOT -> x
-  | Cst x, Cst y when x=y -> a
-  | _ -> TOP
+  | Itv(i, j), Itv(k, l) -> Itv(bound_min i k, bound_max j l)
 
-  let meet a b = match a,b with
-  | TOP,x | x,TOP -> x
-  | Cst x, Cst y when x=y -> a
+  let meet a b : t = match a,b with
+  | Itv(i, j), Itv(k, l) -> let maxac = bound_max i k in
+      let minbd = bound_min j l in
+        let ppoe = bound_cmp maxac minbd in
+          if(ppoe=(-1) || ppoe=0) then
+            Itv (maxac, minbd)
+          else BOT
   | _ -> BOT
 
 
@@ -106,42 +144,29 @@ module Intervals = (struct
 
   (* comparison operations (filters) *)
 
-  let eq a b = match a,b with
-  | BOT,x | x,BOT -> x, BOT
-  | Cst x, Cst y -> if Z.equal x y then a, b else BOT, BOT
-  | _ -> TOP, TOP
+  let eq a b = a, b
 
-  let neq a b = match a,b with
-  | BOT,x | x,BOT -> x, BOT
-  | Cst x, Cst y -> if not (Z.equal x y) then a, b else BOT, BOT
-  | _ -> TOP, TOP
+  let neq a b = a, b
       
-  let geq a b = match a,b with
-  | BOT,x | x,BOT -> x, BOT
-  | Cst x, Cst y -> if Z.geq x y then a, b else BOT, BOT
-  | _ -> TOP, TOP
+  let geq (a:t) (b:t) = a, b
       
-  let gt a b = match a,b with
-  | BOT,x | x,BOT -> x, BOT
-  | Cst x, Cst y -> if Z.gt x y then a, b else BOT, BOT
-  | _ -> TOP, TOP
+  let gt a b = a, b
 
 
   (* subset inclusion of concretizations *)
   let subset a b = match a,b with
-  | BOT,_ | _,TOP -> true
-  | Cst x, Cst y -> x=y
-  | _ -> false
+  | BOT,_ -> true
+  | _, BOT -> false
+  | Itv (a,b), Itv(c,d) -> bound_cmp a c >= 0 && bound_cmp b d <= 0
 
   (* check the emptyness of the concretization *)
   let is_bottom a =
     a=BOT
 
   (* prints abstract element *)
-  let print fmt x = match x with
+  let print fmt (x:t) = match x with
   | BOT -> Format.fprintf fmt "bottom"
-  | TOP -> Format.fprintf fmt "top"
-  | Cst x -> Format.fprintf fmt "{%s}" (Z.to_string x)
+  | Itv((a:bound), (b:bound)) -> Format.fprintf fmt "[%s, %s]" (bound_to_string a) (bound_to_string b)
 
 
   (* operator dispatch *)

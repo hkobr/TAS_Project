@@ -38,7 +38,7 @@ let main () =
     ["-trace", Arg.Set Interpreter.trace, "";
      "-concrete", Arg.Unit (fun () -> action := ConcreteAnalysis.eval_prog),"";
      "-constant", Arg.Unit (fun () -> action := ConstantAnalysis.eval_prog),"";
-	 "-interval", Arg.Unit (fun () -> action := IntervalAnalysis.eval_prog),"";
+	   "-interval", Arg.Unit (fun () -> action := IntervalAnalysis.eval_prog),"";
    ]
     (* handle filenames *)
     (fun filename -> files := (!files)@[filename])

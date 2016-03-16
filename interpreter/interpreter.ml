@@ -171,9 +171,9 @@ module Interprete(D : DOMAIN) =
         filter inv e false
 
     | AST_assert e ->
-	let res = filter a e false in
-	  if not (D.is_bottom res) then
-	    (Format.printf "Error !! Assertion is false !\n");	
+	       let res = filter a e false in
+	       if not (D.is_bottom res) then
+	         (Format.printf "Error !! Assertion is false !\n");	
         filter a e true
           
     | AST_print l ->
