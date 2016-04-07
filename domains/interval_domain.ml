@@ -40,10 +40,10 @@ module Intervals = (struct
     | INF,_ | _,INF -> INF
     | Int i, Int j -> Int (Z.add i j)  
 
+  (* a*b *)
   let bound_mul (a:bound) (b:bound) : bound = match a,b with
     | MINF, INF | INF, MINF -> MINF
-    | Int Z.zero,_ | _,Int Z.zero -> Int Z.zero
-    | MINF, MINF -> INF
+    | MINF, MINF | INF, INF -> INF
     | MINF, Int x | Int x, MINF -> let x2 = Z.sign x in
       if x2=(-1) then INF
       else if x2=1 then MINF
@@ -52,6 +52,22 @@ module Intervals = (struct
       if x2=(-1) then MINF
       else if x2=1 then INF
       else Int Z.zero
+    | Int x, Int y -> Int (Z.mul x y)
+
+  let bound_div (a:bound) (b:bound) : bound = match a,b with
+    | _, INF | _, MINF -> Int Z.zero
+    | Int z, Int x -> let s = Z.sign x in
+      if s=1 then Int(Z.div z x)
+      else if s=(-1) then bound_neg (Int (Z.div z x))
+      else invalid_arg "bound_div"
+    | INF, Int x -> let s = Z.sign x in
+      if s=1 then INF
+      else if s=(-1) then MINF
+      else invalid_arg "bound_div"
+    | MINF, Int x -> let s = Z.sign x in
+      if s=1 then MINF
+      else if s=(-1) then INF
+      else invalid_arg "bound_div"
 
   (* compare a et b, retourne -1, 0 ou 1 *)
   let bound_cmp (a:bound) (b:bound) : int = match a,b with
@@ -91,15 +107,21 @@ module Intervals = (struct
   let lift2 f (x:t) (y:t) :t =
     match x,y with
     | BOT,_ | _,BOT -> BOT
-    | Itv (a, b), Itv(c, d) -> Itv(f a c, f b d)
+    | Itv (a, b), Itv(c, d) -> f a b c d
           
 
 
   (* interface implementation *)
   (* ************************ *)
 
+   (* unrestricted value *)
+  let top = Itv(MINF, INF)
+
   (* bottom value *)
   let bottom = BOT
+
+  (* constant *)
+  let const c = Itv(Int c, Int c)
 
   (* interval *)
   let rand x y =
@@ -111,16 +133,24 @@ module Intervals = (struct
 
   let neg (x:t) : t = lift1 (fun a b -> Itv (bound_neg b, bound_neg a)) x
 
-  let add a b = lift2 (fun  i j k l -> Itv(bound_add i k, bound_add j l) a b
+  let add (a:t) (b:t) : t = lift2 (fun  i j k l -> Itv(bound_add i k, bound_add j l)) a b
 
-  let sub a b = a, b
+  let sub (a:t) (b:t) : t = lift2 (fun  i j k l -> Itv(bound_add i (bound_neg l), bound_add j (bound_neg k))) a b
 
-  let mul a b = a, b
+  let mul (j:t) (k:t) : t = lift2 (fun  a b c d -> Itv(bound_min (bound_min (bound_mul a c) (bound_mul a d)) (bound_min (bound_mul b c) (bound_mul b d)), 
+                                                       bound_max (bound_max (bound_mul a c) (bound_mul a d)) (bound_max (bound_mul b c) (bound_mul b d)))) j k
 
-  let modulo a b = a, b
+  (* a%b *)
+  let modulo (a:t) (b:t) : t = lift2 (fun  i j k l -> Itv(Int Z.zero, bound_add l (Int Z.one))) a b
 
-  let div a b = a, b
-
+  let div (j:t) (k:t) : t = lift2 (fun  a b c d -> 
+    let s = bound_cmp (Int Z.one) c in
+      if s=0 || s =(-1) then
+        Itv(bound_min (bound_div a c) (bound_div a d), bound_max (bound_div b c) (bound_div b d))
+      else let s2 = bound_cmp d (Int (Z.neg Z.one)) in
+        if s2=0 || s2=(-1) then
+          Itv(bound_min (bound_div b c) (bound_div b d), bound_max (bound_div a c) (bound_div a d))
+        else BOT) j k
 
   (* set-theoretic operations *)
   
@@ -138,19 +168,53 @@ module Intervals = (struct
   | _ -> BOT
 
 
-  (* no need for a widening as the domain has finite height; we use the join *)
-  let widen = join
+
+  let widen x y = match x,y with
+  |  Itv(a,b), Itv(c,d) -> let cmpac = bound_cmp a c in
+      let cmpbd = bound_cmp b d in
+        if (cmpac=0 || cmpac=(-1)) then
+           if (cmpbd=0 || cmpbd=1) then
+              Itv(a, b)
+            else Itv(a, INF)
+        else if (cmpbd=0 || cmpbd=1) then
+          Itv(MINF, b)
+        else
+          Itv(MINF, INF)
+  |  BOT,_ | _,BOT -> BOT
 
 
   (* comparison operations (filters) *)
 
-  let eq a b = a, b
+  let eq a b = let m = meet a b in m, m
 
-  let neq a b = a, b
+  let neq a b = match a,b with
+    | BOT,_ -> BOT,b
+    | _,BOT -> a,BOT
+    | Itv(i,j), Itv(k,l) -> let cmpik = bound_cmp i k in
+        let cmpjk = bound_cmp j k in
+          let cmpil = bound_cmp i l in
+            let cmpjl = bound_cmp j l in
+              if cmpjk=(-1) || cmpil=1 then a,b
+              else if cmpik=0 && cmpjl=0 then BOT,BOT
+              else if cmpik=(-1) then
+                if cmpjk=0 || cmpjk=1 then Itv(i, bound_add k (bound_neg (Int Z.one))), Itv(k,l)
+                else BOT,BOT
+              else if cmpjl=0 || cmpjl=(-1) then BOT,BOT
+              else Itv(bound_add l (Int Z.one) ,j), Itv(k,l)
       
-  let geq (a:t) (b:t) = a, b
+  let geq a b = match a,b with
+   | BOT,_ | _,BOT -> BOT, BOT
+   | Itv(i,j), Itv(k,l) -> if bound_cmp j k=(-1) then BOT, BOT
+                           else if bound_cmp i l=1 then a,b
+                           else if bound_cmp j l=1 then Itv(l, j), Itv(bound_min i k, l)
+                           else BOT, BOT
       
-  let gt a b = a, b
+  let gt a b = match a,b with
+   | BOT,_ | _,BOT -> BOT, BOT
+   | Itv(i,j), Itv(k,l) -> if bound_cmp j k=(-1) then BOT, BOT
+                           else if bound_cmp i l=1 then a,b
+                           else if bound_cmp j l=1 then Itv((bound_add l (Int Z.one)), j), Itv(bound_min i k, l)
+                           else BOT, BOT
 
 
   (* subset inclusion of concretizations *)
@@ -167,7 +231,6 @@ module Intervals = (struct
   let print fmt (x:t) = match x with
   | BOT -> Format.fprintf fmt "bottom"
   | Itv((a:bound), (b:bound)) -> Format.fprintf fmt "[%s, %s]" (bound_to_string a) (bound_to_string b)
-
 
   (* operator dispatch *)
         
@@ -208,7 +271,7 @@ module Intervals = (struct
         
   | AST_MULTIPLY ->
       (* r=x*y => (x=r/y or y=r=0) and (y=r/x or x=r=0)  *)
-      let contains_zero o = subset (const Z.zero) o in
+      let contains_zero o = subset (Itv(Int Z.zero, Int Z.zero)) o in
       (if contains_zero y && contains_zero r then x else meet x (div r y)),
       (if contains_zero x && contains_zero r then y else meet y (div r x))
 
@@ -221,5 +284,3 @@ module Intervals = (struct
         
       
 end : VALUE_DOMAIN)
-
-    

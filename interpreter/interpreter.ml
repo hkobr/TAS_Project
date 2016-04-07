@@ -115,7 +115,8 @@ module Interprete(D : DOMAIN) =
     in
     doit a e r
 
-
+  let current_delay = ref 0
+  let current_unroll = ref 0
       
   (* interprets a statement, by induction on the syntax *)
   let rec eval_stat (a:t) ((s,ext):stat ext) : t = 
@@ -163,8 +164,8 @@ module Interprete(D : DOMAIN) =
         (* function to accumulate one more loop iteration:
            F(X(n+1)) = X(0) U body(F(X(n)
            we apply the loop body and add back the initial abstract state
-         *)        
-        let f x = D.join a (eval_stat (filter x e true) s) in
+         *)
+        let f x = D.widen a (eval_stat (filter x e true) s) in
         (* compute fixpoint from the initial state (i.e., a loop invariant) *)
         let inv = fix f a in
         (* and then filter by exit condition *)

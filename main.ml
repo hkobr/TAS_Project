@@ -16,7 +16,7 @@ module ConstantAnalysis =
 module IntervalAnalysis =
   Interpreter.Interprete
     (Non_relational_domain.NonRelational
-       (Interval_domain.Intervals))	   
+       (Interval_domain.Intervals))
 
 (* parse and print filename *)
 let doit filename =
@@ -36,9 +36,11 @@ let main () =
   Arg.parse
     (* handle options *)
     ["-trace", Arg.Set Interpreter.trace, "";
-     "-concrete", Arg.Unit (fun () -> action := ConcreteAnalysis.eval_prog),"";
-     "-constant", Arg.Unit (fun () -> action := ConstantAnalysis.eval_prog),"";
-	   "-interval", Arg.Unit (fun () -> action := IntervalAnalysis.eval_prog),"";
+     "-concrete", Arg.Unit (fun ()  -> action := ConcreteAnalysis.eval_prog),"";
+     "-constant", Arg.Unit (fun ()  -> action := ConstantAnalysis.eval_prog),"";
+	   "-interval", Arg.Unit (fun ()  -> action := IntervalAnalysis.eval_prog),"";
+     "-delay"   , Arg.Int  (fun (a) -> Interpreter.widen_delay := a)        ,"";
+     "-unroll"  , Arg.Int  (fun (a) -> Interpreter.loop_unrolling := a)     ,"";
    ]
     (* handle filenames *)
     (fun filename -> files := (!files)@[filename])
