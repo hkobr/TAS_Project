@@ -5,14 +5,14 @@
 *)
 
 (* 
-   The constant domain
+   The Parity domain
  *)
 
 open Abstract_syntax_tree
 open Value_domain
 
   
-module Constants = (struct
+module Parity = (struct
 
   
   (* types *)
@@ -21,9 +21,10 @@ module Constants = (struct
 
   (* type of abstract values *)
   type t =
-    | Cst of Z.t  (* the set is a single value (constant) *)
+    | PAIR
+    | IMPAIR  (* the set is a single value (Parity) *)
     | BOT         (* the set is empty (not reachable) *)
-    | TOP         (* the set of all integers (not constant)  *)
+    | TOP         (* the set of all integers (not Parity)  *)
 
 
   (* utilities *)
@@ -35,14 +36,15 @@ module Constants = (struct
     match x with
     | BOT -> BOT
     | TOP -> TOP
-    | Cst a -> Cst (f a)
+    | _ -> x
 
   (* lift binary arithmetic operations *)
   let lift2 f x y =
     match x,y with
     | BOT,_ | _,BOT -> BOT
     | TOP,_ | _,TOP -> TOP
-    | Cst a, Cst b -> Cst (f a b)
+    | PAIR, PAIR | IMPAIR, IMPAIR -> PAIR
+    | _ -> IMPAIR
           
 
 
@@ -56,15 +58,18 @@ module Constants = (struct
   (* bottom value *)
   let bottom = BOT
 
-  (* constant *)
-  let const c = Cst c
+  let pair x = ((Z.erem x (Z.of_int 2)) = Z.zero)
+
+  (* Parity *)
+  let const c = if (pair c) then PAIR else IMPAIR
+
+
 
   (* interval *)
   let rand x y =
-    if x=y then Cst x 
+    if x=y then const x 
     else if x<y then TOP
     else BOT
-
 
   (* arithmetic operations *)
 
@@ -74,27 +79,34 @@ module Constants = (struct
 
   let sub = lift2 Z.sub
 
-  let mul a b = 
-    if a = Cst Z.zero || b = Cst Z.zero then Cst Z.zero
-    else lift2 Z.mul a b
+  let mul a b = match a,b with
+   | BOT,_ | _,BOT -> BOT
+   | PAIR,_ | _,PAIR -> PAIR
+   | _ -> IMPAIR
 
   let modulo = lift2 Z.erem
 
-  let div a b =
-    if b = Cst Z.zero || b = TOP then BOT
-    else lift2 Z.div a b
+  let div a b = match a,b with
+   | BOT,_ | _,BOT -> BOT
+   | PAIR, IMPAIR -> PAIR
+   | IMPAIR, IMPAIR -> IMPAIR
+   | _ -> TOP
+    
 
 
   (* set-theoretic operations *)
   
   let join a b = match a,b with
   | BOT,x | x,BOT -> x
-  | Cst x, Cst y when x=y -> a
+  | TOP,_ | _,TOP -> TOP
+  | PAIR, PAIR -> PAIR
+  | IMPAIR, IMPAIR -> IMPAIR
   | _ -> TOP
 
   let meet a b = match a,b with
   | TOP,x | x,TOP -> x
-  | Cst x, Cst y when x=y -> a
+  | PAIR, PAIR -> PAIR
+  | IMPAIR, IMPAIR -> IMPAIR
   | _ -> BOT
 
 
@@ -104,31 +116,17 @@ module Constants = (struct
 
   (* comparison operations (filters) *)
 
-  let eq a b = match a,b with
-  | BOT,x | x,BOT -> x, BOT
-  | Cst x, Cst y -> if Z.equal x y then a, b else BOT, BOT
-  | _ -> TOP, TOP
+  let eq a b = a,b
 
-  let neq a b = match a,b with
-  | BOT,x | x,BOT -> x, BOT
-  | Cst x, Cst y -> if not (Z.equal x y) then a, b else BOT, BOT
-  | _ -> TOP, TOP
+  let neq a b = a,b
       
-  let geq a b = match a,b with
-  | BOT,x | x,BOT -> x, BOT
-  | Cst x, Cst y -> if Z.geq x y then a, b else BOT, BOT
-  | _ -> TOP, TOP
+  let geq a b = a,b
       
-  let gt a b = match a,b with
-  | BOT,x | x,BOT -> x, BOT
-  | Cst x, Cst y -> if Z.gt x y then a, b else BOT, BOT
-  | _ -> TOP, TOP
-
+  let gt a b = a,b
 
   (* subset inclusion of concretizations *)
   let subset a b = match a,b with
-  | BOT,_ | _,TOP -> true
-  | Cst x, Cst y -> x=y
+  | BOT,_ | _,TOP | PAIR,PAIR | IMPAIR,IMPAIR -> true
   | _ -> false
 
   (* check the emptyness of the concretization *)
@@ -139,11 +137,11 @@ module Constants = (struct
   let print fmt x = match x with
   | BOT -> Format.fprintf fmt "bottom"
   | TOP -> Format.fprintf fmt "top"
-  | Cst x -> Format.fprintf fmt "{%s}" (Z.to_string x)
-
+  | PAIR -> Format.fprintf fmt "pair"
+  | IMPAIR -> Format.fprintf fmt "impair"
 
   (* operator dispatch *)
-        
+
   let unary x op = match op with
   | AST_UNARY_PLUS  -> x
   | AST_UNARY_MINUS -> neg x
@@ -193,18 +191,13 @@ module Constants = (struct
   | AST_MODULO ->
       x, y
 
-  let is_pair x = match x with
-    | Cst a->(Z.erem a (Z.of_int 2))=Z.zero
-    | _ -> false
+  let is_pair x = (x=PAIR)
 
-  let is_top x = match x with
-    | TOP -> true
-    | _ -> false
+  let is_top x = (x=TOP)
 
   let first x = invalid_arg "first"
-  let second x = invalid_arg "last"
+
+  let second x = invalid_arg "first"
         
       
 end : VALUE_DOMAIN)
-
-    

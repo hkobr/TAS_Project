@@ -10,7 +10,7 @@
  *)
 
 open Abstract_syntax_tree
-  
+
 module type VALUE_DOMAIN =
   sig
 
@@ -54,7 +54,6 @@ module type VALUE_DOMAIN =
     (* widening, for loops *)
     val widen: t -> t -> t
 
-
     (* comparison *)
     (* [compare x y op] returns (x',y') where
        - x' abstracts the set of v  in x such that v op v' is true for some v' in y
@@ -97,7 +96,12 @@ module type VALUE_DOMAIN =
        let bwd_binay x y _ _ = (x,y)
       *)
     val bwd_binary: t -> t -> int_binary_op -> t -> (t * t)
-  
+
+    val is_pair: t -> bool
+    val is_top: t -> bool
+    val first: t -> Z.t
+    val second: t -> Z.t
+
 end
       
 

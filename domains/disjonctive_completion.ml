@@ -5,14 +5,14 @@
 *)
 
 (* 
-   The interval domain
+   Completion disjonctive
  *)
 
 open Abstract_syntax_tree
 open Value_domain
 
   
-module Intervals = (struct
+module DisjonctiveCompletion = (struct
 
   
   (* types *)
@@ -86,28 +86,37 @@ module Intervals = (struct
       if(x=(-1) || x=0) then b
       else a
 
-  type t = Itv of bound * bound | BOT
+  type interval = Itv of bound * bound
+
+  type t = 
+    | Itv of bound * bound
+    | BOT
+    | Union of t * t
 
   (* utilities *)
   (* ********* *)
 
 
   (* lift unary arithmetic operations, from integers to t *)
-  let lift1 f x =
+  let rec lift1 f x =
     match x with
     | Itv (a,b) -> f a b
     | BOT -> BOT
+    | Union (a,b) -> Union((lift1 f a), (lift1 f b))
 
   (* lift binary arithmetic operations *)
-  let lift2 f (x:t) (y:t) :t =
+  let rec lift2 f (x:t) (y:t) :t =
     match x,y with
     | BOT,_ | _,BOT -> BOT
-    | Itv (a, b), Itv(c, d) -> f a b c d
+    | Itv(a, b), Itv(c, d) -> f a b c d
+    | Union(a,b), z | z, Union(a,b) -> Union((lift2 f a z), (lift2 f b z))
           
 
 
   (* interface implementation *)
   (* ************************ *)
+
+
 
    (* unrestricted value *)
   let top = Itv(MINF, INF)
@@ -123,6 +132,14 @@ module Intervals = (struct
     if x=y || x<y then Itv (Int x, Int y)
     else BOT
 
+
+  (* subset inclusion of concretizations *)
+  let rec subset a b = match a,b with
+  | BOT,_ -> true
+  | _, BOT -> false
+  | Itv (i,j), Itv(k,l) -> bound_cmp i k >= 0 && bound_cmp j l <= 0
+  | Union(i,j), z -> (subset i z) || (subset j z)
+  | z, Union(i,j) -> (subset z i) || (subset z j)
 
   (* arithmetic operations *)
 
@@ -149,9 +166,10 @@ module Intervals = (struct
 
   (* set-theoretic operations *)
   
-  let join a b = match a,b with
+  let rec join a b = match a,b with
   | BOT,x | x,BOT -> x
-  | Itv(i, j), Itv(k, l) -> Itv(bound_min i k, bound_max j l)
+  | Itv(i, j), Itv(k, l) -> if (subset a b) then b else if (subset b a) then a else Union(a, b)
+  | Union(i,j), z | z, Union(i,j) -> Union(i, (join j z))
 
   let meet a b : t = match a,b with
   | Itv(i, j), Itv(k, l) -> let maxac = bound_max i k in
@@ -164,7 +182,7 @@ module Intervals = (struct
 
 
 
-  let widen x y = match x,y with
+  let rec widen x y = match x,y with
   |  Itv(a,b), Itv(c,d) -> let cmpac = bound_cmp a c in
       let cmpbd = bound_cmp b d in
         if (cmpac=0 || cmpac=(-1)) then
@@ -176,13 +194,14 @@ module Intervals = (struct
         else
           Itv(MINF, INF)
   |  BOT,_ | _,BOT -> BOT
+  |  Union(a,b), z | z, Union(a,b) -> Union(widen a z, widen b z)
 
 
   (* comparison operations (filters) *)
 
   let eq a b = let m = meet a b in m, m
 
-  let neq a b = match a,b with
+  let rec neq a b = match a,b with
     | BOT,_ -> BOT,b
     | _,BOT -> a,BOT
     | Itv(i,j), Itv(k,l) -> let cmpik = bound_cmp i k in
@@ -196,6 +215,8 @@ module Intervals = (struct
                 else BOT,BOT
               else if cmpjl=0 || cmpjl=(-1) then BOT,BOT
               else Itv(bound_add l (Int Z.one) ,j), Itv(k,l)
+    | Union(x,y), z -> a,b
+    | z, Union(x,y) -> a,b
 
   let geq a b = match a,b with
     |Itv(x,y),Itv(v,w) -> (match (bound_cmp x v),(bound_cmp x w),(bound_cmp y v),(bound_cmp y w),(bound_cmp v w)  with
@@ -216,20 +237,16 @@ module Intervals = (struct
     |_->(a,b)
 
 
-  (* subset inclusion of concretizations *)
-  let subset a b = match a,b with
-  | BOT,_ -> true
-  | _, BOT -> false
-  | Itv (a,b), Itv(c,d) -> bound_cmp a c >= 0 && bound_cmp b d <= 0
 
   (* check the emptyness of the concretization *)
   let is_bottom a =
     a=BOT
 
   (* prints abstract element *)
-  let print fmt (x:t) = match x with
+  let rec print fmt (x:t) = match x with
   | BOT -> Format.fprintf fmt "bottom"
   | Itv((a:bound), (b:bound)) -> Format.fprintf fmt "[%s, %s]" (bound_to_string a) (bound_to_string b)
+  | Union((a:t), (b:t)) -> print fmt a; Format.fprintf fmt " U "; print fmt b
 
   (* operator dispatch *)
         

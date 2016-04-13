@@ -155,21 +155,26 @@ module Interprete(D : DOMAIN) =
         D.join t f
           
     | AST_while (e,s) ->
+        let rec unroll (v:t) (c:int) : t = if (c = (!loop_unrolling)) then v else unroll (eval_stat (filter v e true) s) (c+1) in
+
         (* simple fixpoint *)
-        let rec fix (f:t -> t) (x:t) : t = 
+        let rec fix (f:t -> t) (x:t) (c:int) : t = 
           let fx = f x in
           if D.subset fx x then fx
-          else fix f fx
+          else if c=(!widen_delay) then fix f (eval_stat (D.widen x fx) s) (c+1)
+          else fix f (D.join x fx) (c+1)
         in
+        let unroll_ret = unroll a 0 in
         (* function to accumulate one more loop iteration:
            F(X(n+1)) = X(0) U body(F(X(n)
            we apply the loop body and add back the initial abstract state
          *)
-        let f x = D.widen a (eval_stat (filter x e true) s) in
+        let f x = D.join a (eval_stat (filter x e true) s) in
         (* compute fixpoint from the initial state (i.e., a loop invariant) *)
-        let inv = fix f a in
+        let inv = fix f unroll_ret 0 in
+        let inv_refine=unroll inv (!loop_unrolling-1) in 
         (* and then filter by exit condition *)
-        filter inv e false
+        filter inv_refine e false
 
     | AST_assert e ->
 	       let res = filter a e false in
